@@ -7,6 +7,8 @@ import time as _time_
 import json
 from AES import AES
 
+from queue import Queue
+
 def log(mssg):
     # print(mssg)
     pass
@@ -25,10 +27,17 @@ aes = AES([bytearray(key[0:4], 'UTF-8'), bytearray(key[4:8], 'UTF-8'), bytearray
 
 class Client:
 
+    def __init__(self):
+        self.online = True
+        self.enter = False
+        self.t = threading.Thread(target=self.loop_requests)
+        self.request_q = Queue(maxsize=0)
+        # self.t.start()
+
     def snd_requests(self, query):
         log("send request")
         l("v send requests")
-        # TODO POGRUNTAT KULKRAT MORE PROBAT
+
         for i in "1234":
             l("pinging")
             try:
@@ -100,47 +109,27 @@ class Client:
             log("dumped")
             json.dump([], f)
 
-        q_ls = list()
-        sent = list()
-        run = True
-        while run:
-            with open("abc.txt", "r") as f:
-                o = json.load(f)
-            if len(o) != 0:
-                run = False
+        while True:
 
-            if self.enter:
-                with open("made.txt", "r") as f:
-                    q_ls = json.load(f)
+            if self.request_q.empty():
+                return
 
-            for query in reversed(q_ls):
-                # checking if we ve been here allready
-                b = False
-                for i in sent:
-                    if i == query:
-                        b = True
-                        break
-                if b:
-                    break
-                a = self.snd_requests(query)
-                log("it should have sent " + str(a))
-                if a != 200:
-                    log("save query")
-                    with open("querys.txt", "r") as s:
-                        a = json.load(s)
-                    a.append(query)
-                    with open("querys.txt", "w") as s:
-                        json.dump(a, s)
-                elif a == 200:
-                    break
-                sent.append(query)
+            q = self.request_q.get_nowait()
 
-    def __init__(self):
-        self.online = True
-        self.enter = False
-        self.t = threading.Thread(target=self.loop_requests)
-        # self.t.start()
+            with open("querys.txt", "r") as s:
+                unmade_qs = json.load(s)
+                unmade_qs.append(q)
+            with open("querys.txt", "w") as s:
+                json.dump(unmade_qs, s)
 
+            a = self.snd_requests(q)
+            log("it should have sent " + str(a))
+            if a == 200:
+                unmade_qs.pop(-1)
+                with open("querys.txt", "w") as s:
+                    json.dump(unmade_qs, s)
+
+                
     def save_query(self, query):
         log("save query")
         with open("querys.txt", "r") as s:
@@ -270,11 +259,14 @@ class Client:
         else:
             query = "ls-" + action + "-" + time + "-" + str(randint(100,999)) + "-" + "'" + str(ls_name) + "':'" + str(ending) + "'"
 
+        self.request_q.put(query)
+
         if not self.t.is_alive():
+            self.t = threading.Thread(target=self.loop_requests)
             self.t.start()
             _time_.sleep(0.1)
 
-        a = "save"
+"""        a = "save"
         self.enter = False
         _time_.sleep(0.1)
         with open("made.txt", "r") as f:
@@ -283,7 +275,7 @@ class Client:
         with open("made.txt", "w") as f:
             json.dump(a, f)
         self.enter = True
-
+"""
         # if self.online:
         #    a = self.snd_requests(query)
         # if a == "save":
