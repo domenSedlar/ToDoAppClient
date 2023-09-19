@@ -8,6 +8,13 @@ import json
 from AES import AES
 
 from queue import Queue
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
+
+import update
+
 
 def log(mssg):
     # print(mssg)
@@ -19,10 +26,20 @@ def l(mss):
 #ip = "http://192.168.182.228:5000/"
 ip = "http://127.0.0.1:5000/"
 
+password = b""
 
-key = "j#_t9mjGfCHNYD*U"
+with open("d", "r") as s:
+    password = s.readline().encode()
 
-aes = AES([bytearray(key[0:4], 'UTF-8'), bytearray(key[4:8], 'UTF-8'), bytearray(key[8:12], 'UTF-8'), bytearray(key[12:16], 'UTF-8')])
+kdf = PBKDF2HMAC(
+    algorithm=hashes.SHA256(),
+    length=32,
+    salt=b'1234567890123456',
+    iterations=480000,
+)
+key = base64.urlsafe_b64encode(kdf.derive(password))
+
+#aes = AES([bytearray(key[0:4], 'UTF-8'), bytearray(key[4:8], 'UTF-8'), bytearray(key[8:12], 'UTF-8'), bytearray(key[12:16], 'UTF-8')])
 
 
 class Client:
@@ -33,6 +50,8 @@ class Client:
         self.t = threading.Thread(target=self.loop_requests)
         self.request_q = Queue(maxsize=0)
         # self.t.start()
+
+        self.fernet = Fernet(key)
 
     def snd_requests(self, query):
         log("send request")
@@ -73,12 +92,13 @@ class Client:
         log("g je " + g)
         l(query[query.find("':'") + 3: -1])
         if not "tsk-cd-" in query:
-            for i in range(10):
+            for i in range(2):
                 log("send")
                 try:
                     r = requests.get(ip + query)
                     c = r.status_code
                     if c == 200:
+                        l("in c == 200 mk request not tsk-cd")
                         l("returned code: " + str(c) + " query: " + ip + query)
 
                         log("it worked ")
@@ -88,10 +108,11 @@ class Client:
             l("returned code: " + str(c) + " query: " + ip + query)
             return c
         else:
-            for i in range(10):
+            for i in range(2):
                 log("send")
                 try:
-                    r = requests.get(ip + query.replace(query[query.find("':'") + 3: -1],""), data = {'end': query[query.find("':'") + 3: -1]})
+                    #r = requests.get(ip + query.replace(query[query.find("':'") + 3: -1],""), data = {'end': query[query.find("':'") + 3: -1]})
+                    r = requests.post(ip + query.replace(query[query.find("':'") + 3: -1],""), data = query[query.find("':'") + 3: -1])
                     l(ip + query.replace(query[query.find("':'") + 3: -1],""))
                     c = r.status_code
                     if c == 200:
@@ -139,7 +160,8 @@ class Client:
             json.dump(a, s)
 
     def decode(self, enyc):
-        o = aes.deyc_string(enyc)
+        #o = aes.deyc_string(enyc)
+        o = self.fernet.decrypt(enyc).decode()
         return o
 
     def opend(self):
@@ -160,6 +182,7 @@ class Client:
 
         a = 0
 
+        # sends updates to server that it couldnt send earlier because of no connection
         for i in ls:
             a = self.snd_requests(i)
             l(str(a) + " v opend for loopu 1 request: " + i)
@@ -168,14 +191,48 @@ class Client:
                 self.online = False
                 break
 
+        # asks server for updates
         c = 0
         if connection:
             log("connection")
-            if a == 200:
+            tm = "0"
+            with open("last_update.txt", "r") as f:
+                log("wow")
+                tm = f.readline()
+
+            try: 
+                log("triing connecting")
                 with open("querys.txt", "w") as f:
                     log("wow")
-                    json.dump([], f)
+                    json.dump([], f)                
+                
+                r = requests.get(ip + "update-" + tm)
+                c = r.status_code
+                data = r.content.decode("utf-8")
 
+                data = json.loads(data)
+                if data == None:
+                    return
+
+                if len(data) < 1:
+                    return
+
+                date = data.pop(0)
+                for i in data:
+                    print("data - - ", i)
+                    update.exec_command(i[0], i[1], self.fernet)
+
+                with open("last_update.txt", "w") as f:
+                    f.write(date)
+
+            except requests.exceptions.ConnectionError:
+                log("failed")
+                c = 400
+                self.online = False
+
+            return
+
+            #asking for update on lists and later on tasks
             for i in range(2):
                 try:
                     log("triing connecting")
@@ -232,7 +289,8 @@ class Client:
                 log("self l je " + str(self.l))
 
     def enyc(self, string):
-        e = aes.enyc_string(string)
+        #e = aes.enyc_string(string)
+        e = self.fernet.encrypt(string.encode())
         return e
 
     def mk_request(self, ls_or_tsk, action, ls_name, ending='', tsk_name=''):
@@ -246,6 +304,7 @@ class Client:
             if not ending == '':
                 print(":(")
                 ending = self.enyc(ending)
+                print(ending)
 
         if tsk_name != '':
             tsk_name = self.enyc(tsk_name)
