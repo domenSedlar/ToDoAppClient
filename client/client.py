@@ -26,6 +26,9 @@ def l(mss):
 #ip = "http://192.168.182.228:5000/"
 ip = "http://127.0.0.1:5000/"
 
+with open("ip.dat", "r") as s:
+    ip = s.readline()
+
 password = b""
 
 with open("d", "r") as s:
